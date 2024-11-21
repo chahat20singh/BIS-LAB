@@ -1,93 +1,94 @@
 import numpy as np
+import random
 
-# Function to calculate the total distance of a route (path)
-def calculate_total_distance(route, distance_matrix):
-    total_distance = 0
-    for i in range(len(route) - 1):
-        total_distance += distance_matrix[route[i], route[i + 1]]
-    total_distance += distance_matrix[route[-1], route[0]]  # Return to start
-    return total_distance
+class PSO_VRP:
+    def __init__(self, n_vehicles, n_customers, coordinates, capacity, n_particles, n_iterations, w=0.5, c1=1.5, c2=1.5):
+        self.n_vehicles = n_vehicles
+        self.n_customers = n_customers
+        self.coordinates = coordinates
+        self.capacity = capacity
+        self.n_particles = n_particles
+        self.n_iterations = n_iterations
+        self.w = w   # Inertia weight
+        self.c1 = c1  # Cognitive component
+        self.c2 = c2  # Social component
 
-# Particle Swarm Optimization (PSO) for TSP
-class PSO_TSP:
-    def _init_(self, distance_matrix, num_particles=30, num_iterations=100, w=0.5, c1=1, c2=1):
-        self.num_particles = num_particles
-        self.num_iterations = num_iterations
-        self.distance_matrix = distance_matrix
-        self.num_cities = len(distance_matrix)
-        self.w = w  # Inertia weight
-        self.c1 = c1  # Cognitive coefficient
-        self.c2 = c2  # Social coefficient
+        self.particles = [self.random_solution() for _ in range(n_particles)]
+        self.velocities = [np.zeros_like(self.particles[0]) for _ in range(n_particles)]
+        self.best_particle = self.particles[0]
+        self.best_fitness = float('inf')
 
-        # Initialize particles' positions (routes) and velocities
-        self.particles = np.array([np.random.permutation(self.num_cities) for _ in range(num_particles)])
-        self.velocities = np.array([np.zeros(self.num_cities) for _ in range(num_particles)])
+    def random_solution(self):
+        # Ensure vehicle assignment is between 0 and n_vehicles - 1
+        solution = np.array([random.randint(0, self.n_vehicles - 1) for _ in range(self.n_customers)])
+        return solution
 
-        # Evaluate fitness of each particle (route)
-        self.fitness = np.array([calculate_total_distance(route, distance_matrix) for route in self.particles])
+    def fitness(self, solution):
+        vehicle_loads = np.zeros(self.n_vehicles)
+        routes = {i: [] for i in range(self.n_vehicles)}
+        total_distance = 0
 
-        # Initialize personal best positions and fitness
-        self.p_best = np.copy(self.particles)
-        self.p_best_fitness = np.copy(self.fitness)
+        for customer, vehicle in enumerate(solution):
+            routes[vehicle].append(customer)
+            vehicle_loads[vehicle] += 1
 
-        # Initialize global best position and fitness
-        self.g_best = self.p_best[np.argmin(self.p_best_fitness)]
-        self.g_best_fitness = np.min(self.p_best_fitness)
+        if np.any(vehicle_loads > self.capacity):
+            return float('inf')
 
-    # Update velocities and positions
+        for vehicle, route in routes.items():
+            if len(route) == 0:
+                continue
+            route_distance = self.calculate_route_distance(route)
+            total_distance += route_distance
+        return total_distance
+
+    def calculate_route_distance(self, route):
+        distance = 0
+        start = 0  # Depot is at index 0
+        for customer in route:
+            distance += np.linalg.norm(self.coordinates[start] - self.coordinates[customer])
+            start = customer
+        distance += np.linalg.norm(self.coordinates[start] - self.coordinates[0])  # Return to depot
+        return distance
+
     def update_particles(self):
-        for i in range(self.num_particles):
-            # Update velocity: w * velocity + c1 * random() * (personal best - current position) + c2 * random() * (global best - current position)
-            r1 = np.random.rand(self.num_cities)
-            r2 = np.random.rand(self.num_cities)
-            cognitive_velocity = self.c1 * r1 * (self.p_best[i] - self.particles[i])
-            social_velocity = self.c2 * r2 * (self.g_best - self.particles[i])
-            inertia_velocity = self.w * self.velocities[i]
-            self.velocities[i] = inertia_velocity + cognitive_velocity + social_velocity
+        for i in range(self.n_particles):
+            for j in range(self.n_customers):
+                r1 = random.random()
+                r2 = random.random()
+                self.velocities[i][j] = self.w * self.velocities[i][j] + self.c1 * r1 * (self.best_particle[j] - self.particles[i][j]) + self.c2 * r2 * (self.best_particle[j] - self.particles[i][j])
+                self.particles[i][j] = int(np.round(self.particles[i][j]))  # Ensure the vehicle assignment is integer
+                self.particles[i][j] = max(0, min(self.particles[i][j], self.n_vehicles - 1))  # Ensure it's within valid bounds
 
-            # To ensure we move to a new route, modify the velocity to shuffle positions
-            velocity_order = np.argsort(self.velocities[i])  # Sort based on the velocity magnitude
-            new_particle = np.array([self.particles[i][j] for j in velocity_order])
+    def optimize(self):
+        for iteration in range(self.n_iterations):
+            for i in range(self.n_particles):
+                fitness_value = self.fitness(self.particles[i])
+                if fitness_value < self.best_fitness:
+                    self.best_fitness = fitness_value
+                    self.best_particle = self.particles[i]
 
-            # Ensure the new particle is a valid permutation
-            self.particles[i] = new_particle
-            self.fitness[i] = calculate_total_distance(new_particle, self.distance_matrix)
-
-            # Update personal best
-            if self.fitness[i] < self.p_best_fitness[i]:
-                self.p_best[i] = self.particles[i]
-                self.p_best_fitness[i] = self.fitness[i]
-
-            # Update global best
-            if self.fitness[i] < self.g_best_fitness:
-                self.g_best = self.particles[i]
-                self.g_best_fitness = self.fitness[i]
-
-    # Run the PSO algorithm
-    def run(self):
-        for iteration in range(self.num_iterations):
             self.update_particles()
-            print(f"Iteration {iteration + 1}: Best Distance = {self.g_best_fitness}")
-        return self.g_best, self.g_best_fitness
 
-# Function to take user input for distance matrix
-def input_distance_matrix():
-    num_cities = int(input("Enter the number of cities: "))
-    print("Enter the distance matrix row by row (space-separated):")
-    distance_matrix = np.zeros((num_cities, num_cities))
-    for i in range(num_cities):
-        row = list(map(int, input(f"Row {i + 1}: ").split()))
-        distance_matrix[i] = row
-    return distance_matrix
+        return self.best_particle, self.best_fitness
 
-# Get user input for the distance matrix
-distance_matrix = input_distance_matrix()
+coordinates = np.array([
+    [0, 0],  # Depot at origin
+    [1, 2],
+    [2, 4],
+    [3, 1],
+    [4, 3],
+    [5, 5]
+])
 
-# Initialize PSO with the distance matrix provided by the user
-pso_tsp = PSO_TSP(distance_matrix)
+n_vehicles = 2
+n_customers = 5
+capacity = 2
+n_particles = 30
+n_iterations = 100
 
-# Run PSO to find the shortest path
-best_route, best_distance = pso_tsp.run()
+pso_vrp = PSO_VRP(n_vehicles, n_customers, coordinates, capacity, n_particles, n_iterations)
+best_solution, best_distance = pso_vrp.optimize()
 
-print("\nBest route found:", best_route)
-print("Best route distance:", best_distance)
+print("Best Solution (Vehicle Assignments):", best_solution)
+print("Best Fitness (Total Distance):", best_distance)
