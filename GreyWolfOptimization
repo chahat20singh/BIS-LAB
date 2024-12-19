@@ -1,0 +1,63 @@
+import cv2
+import numpy as np
+
+def gwo_for_contrast(image, n_agents=5, max_iter=20):
+    # Initialize wolf positions (random contrast factors between 0.5 and 2)
+    alpha, beta, delta = None, None, None
+    dim = 1  # Single parameter for contrast adjustment
+    positions = np.random.uniform(0.5, 2, (n_agents, dim))
+
+    # Fitness function: Entropy of the adjusted image
+    def fitness(contrast_factor):
+        adjusted = np.clip(image * contrast_factor[0], 0, 255).astype(np.uint8)
+        hist = cv2.calcHist([adjusted], [0], None, [256], [0, 256])
+        hist /= hist.sum()
+        entropy = -np.sum(hist * np.log2(hist + 1e-10))  # Add small value to avoid log(0)
+        return entropy
+
+    # Optimization loop
+    for _ in range(max_iter):
+        fitness_values = np.array([fitness(pos) for pos in positions])
+
+        # Update alpha, beta, and delta wolves
+        sorted_indices = np.argsort(fitness_values)[::-1]  # Higher entropy is better
+        alpha = positions[sorted_indices[0]]
+        beta = positions[sorted_indices[1]]
+        delta = positions[sorted_indices[2]]
+
+        # Update positions of other wolves
+        for i in range(n_agents):
+            for d in range(dim):
+                r1, r2, r3 = np.random.random(), np.random.random(), np.random.random()
+
+                A1, C1 = 2 * r1 - 1, 2 * r2
+                D_alpha = abs(C1 * alpha[d] - positions[i, d])
+                X1 = alpha[d] - A1 * D_alpha
+
+                A2, C2 = 2 * r1 - 1, 2 * r3
+                D_beta = abs(C2 * beta[d] - positions[i, d])
+                X2 = beta[d] - A2 * D_beta
+
+                A3, C3 = 2 * r1 - 1, 2 * r2
+                D_delta = abs(C3 * delta[d] - positions[i, d])
+                X3 = delta[d] - A3 * D_delta
+
+                positions[i, d] = (X1 + X2 + X3) / 3
+
+        # Clip positions to valid range
+        positions = np.clip(positions, 0.5, 2)
+
+    # Apply the best contrast factor found
+    best_contrast_factor = alpha[0]
+    adjusted_image = np.clip(image * best_contrast_factor, 0, 255).astype(np.uint8)
+    return adjusted_image
+
+# Load an example grayscale image
+image = cv2.imread("example.jpg", cv2.IMREAD_GRAYSCALE)
+adjusted_image = gwo_for_contrast(image)
+
+# Show original and adjusted images
+cv2.imshow("Original Image", image)
+cv2.imshow("Adjusted Image", adjusted_image)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
